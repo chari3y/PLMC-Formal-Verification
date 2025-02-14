@@ -1,0 +1,201 @@
+﻿#import "PAT.Lib.MyPAT";
+#define N 6;	// number of nodes
+#define MINORITY 2;
+#define HALF 3;
+#define MAJORITY 4;
+
+
+//1-> {2,3,4,5,6}
+
+var threshold = 56;
+
+channel C01 0;
+channel C02 0;
+channel C03 0;
+channel C04 0;
+channel C05 0;
+
+
+var isWinner1 = false;
+var isWinner2 = false;
+var isWinner3 = false;
+var isWinner4 = false;
+var isWinner5 = false;
+
+//var node1CycleCount = 0;
+//var node2CycleCount = 0;
+//var node3CycleCount = 0;
+//var node4CycleCount = 0;
+//var node5CycleCount = 0;
+//var node6CycleCount = 0;
+
+var nodesCycleCount[5];
+
+
+var<MasterKey> masterKey;
+
+var masterKeyIndex;
+
+var latestKey = -1;
+
+var<CapturedKeys> capturedKeys1;
+var<CapturedKeys> capturedKeys2;
+var<CapturedKeys> capturedKeys3;
+var<CapturedKeys> capturedKeys4;
+var<CapturedKeys> capturedKeys5;
+
+var foundWinner=false;
+
+var dummyInput;
+
+var round = 1;
+
+
+var malicious[N];
+
+Initialize() =(initEvent{masterKey.AddKey(56);} -> Skip); // Initialize the signal broadcasted
+
+Reveal() =	(start_reveal{latestKey = masterKey.RevealKey(masterKeyIndex);} -> Skip); // Assign the signal as the key for the session
+
+Send(i) = 	[i==1 && malicious[1]==0] (C01!latestKey -> Skip) [] [i==1 && malicious[1]==1] (Skip)       // broadcast the key to the miners
+			[]
+			[i==2 && malicious[2]==0] (C02!latestKey -> Skip) [] [i==2 && malicious[2]==1] (Skip)
+			[]
+			[i==3 && malicious[3]==0] (C03!latestKey -> Skip) [] [i==3 && malicious[3]==1] (Skip)
+			[]
+			[i==4 && malicious[4]==0] (C04!latestKey -> Skip) [] [i==4 && malicious[4]==1] (Skip)
+			[]
+			[i==5 && malicious[5]==0] (C05!latestKey -> Skip) [] [i==5 && malicious[5]==1] (Skip)
+			;
+
+//If a captures the correct key, select him as the winning miner and increment to the next round
+		
+Receive(i) = [i==1 && malicious[1]==0](
+						C01?y -> keyCapturedEvent01{latestKey= y; isWinner1 = capturedKeys1.AddKey(y,threshold)} -> Skip 
+ 			)
+			[]
+			[i==1 && malicious[1]==1](
+						Skip
+			)
+			
+			[]
+			
+			[i==2 && malicious[2]==0](
+						C02?y -> keyCapturedEvent02{latestKey = y; isWinner2 = capturedKeys2.AddKey(y,threshold)} -> Skip
+			)
+			[]
+			[i==2 && malicious[2]==1](
+						Skip
+			)
+			
+			[]
+			
+			[i==3 && malicious[3]==0](
+						C03?y -> keyCapturedEvent03{latestKey= y; isWinner3 = capturedKeys3.AddKey(y,threshold)} -> Skip
+			)
+		    []
+			[i==3 && malicious[3]==1](
+						Skip
+			)
+			
+			[]
+			
+			[i==4 && malicious[4]==0](
+						C04?y -> keyCapturedEvent04{latestKey= y; isWinner4 = capturedKeys4.AddKey(y,threshold)} -> Skip
+			)
+			[]
+			[i==4 && malicious[4]==1](
+						Skip
+			)
+			
+			[]
+			
+			[i==5 && malicious[5]==0](
+						C05?y -> keyCapturedEvent05{latestKey= y; isWinner5 = capturedKeys5.AddKey(y,threshold)} -> Skip
+			)
+			[]
+			[i==5 && malicious[5]==1](
+						Skip
+			)
+			;
+			
+				
+			
+IncrementCycleCount(i) = incrementCycle.i{
+	nodesCycleCount[i-1]++;
+} -> Skip;
+
+SimulateMalicious(i) = {
+	var count = 5;
+	while (count >= i) {
+		if(malicious[count] == 0 ) {
+			malicious[count] = 1;
+			count --;
+		}
+	} 
+} -> Skip;
+
+BlockChain() = Initialize(); Reveal(); StartBroadcast(); 
+
+StartBroadcast() = (||x:{1..(N-1)}@ ( (Send(x) || Receive(x) || IncrementCycleCount(x)); (Send(x) || Receive(x) || IncrementCycleCount(x)); (Send(x) || Receive(x) || IncrementCycleCount(x)) ) ); StartBroadcast();
+
+BlockChainWithMinority() = SimulateMalicious(MINORITY); BlockChain();
+
+BlockChainWithHalf() = SimulateMalicious(HALF); BlockChain();
+
+//Assertions
+
+// Without malicious nodes
+
+#assert BlockChain() reaches consensusAchieved;
+
+#assert BlockChain() deadlockfree;
+
+#assert BlockChain() reaches forkOccured;
+
+
+//With 2 malicious nodes
+
+#assert BlockChainWithMinority() reaches consensusAchieved;
+
+#assert BlockChainWithMinority() reaches forkOccured;
+
+#assert BlockChainWithMinority() deadlockfree;
+
+//With 3 malicious nodes
+
+#assert BlockChainWithHalf() reaches consensusAchieved;
+
+#assert BlockChainWithHalf() reaches forkOccured;
+
+#assert BlockChainWithHalf() deadlockfree;
+
+
+
+#define consensusAchieved (isWinner1==true || isWinner2==true || isWinner3==true ||  isWinner4==true || isWinner5==true);
+
+
+#define forkOccured ((isWinner1==true&&isWinner2==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner1==true&&isWinner3==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) || 
+					 (isWinner1==true&&isWinner4==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner1==true&&isWinner5==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 
+					 (isWinner2==true&&isWinner1==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner2==true&&isWinner3==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) || 
+					 (isWinner2==true&&isWinner4==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner2==true&&isWinner5==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4])||
+					 
+					 (isWinner3==true&&isWinner1==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner3==true&&isWinner2==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) || 
+					 (isWinner3==true&&isWinner4==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner3==true&&isWinner5==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 
+					 (isWinner4==true&&isWinner1==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner4==true&&isWinner2==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) || 
+					 (isWinner4==true&&isWinner3==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner4==true&&isWinner5==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 
+					 (isWinner5==true&&isWinner1==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner5==true&&isWinner2==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) || 
+					 (isWinner5==true&&isWinner3==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]) ||
+					 (isWinner5==true&&isWinner4==true)&&(nodesCycleCount[0]==nodesCycleCount[1]==nodesCycleCount[2]==nodesCycleCount[3]==nodesCycleCount[4]));
